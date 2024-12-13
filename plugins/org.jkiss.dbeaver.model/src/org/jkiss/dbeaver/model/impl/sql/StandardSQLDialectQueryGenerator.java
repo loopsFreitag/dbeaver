@@ -102,7 +102,8 @@ public class StandardSQLDialectQueryGenerator implements SQLQueryGenerator {
                 .map(Object[].class::cast)
                 .toList();
 
-            for (int i = 0, count = values.get(0).length; i < count; i++) {
+            var count = values.get(0).length;
+            for (int i = 0; i < count; i++) {
                 if (i > 0) {
                     query.append(" OR ");
                 }
@@ -115,6 +116,15 @@ public class StandardSQLDialectQueryGenerator implements SQLQueryGenerator {
                     query.append(getStringValue(dataSource, constraints.get(j), inlineCriteria, values.get(j)[i]));
                 }
                 query.append(')');
+            }
+            if (count == 0) {
+                // Special care for cases when we have no values. Reflects behavior in the else branch
+                for (int i = 0; i < constraints.size(); i++) {
+                    if (i > 0) {
+                        query.append(" AND ");
+                    }
+                    query.append(names.get(i)).append(" IS NULL");
+                }
             }
         } else {
             final String operator = filter.isAnyConstraint() ? " OR " : " AND ";  //$NON-NLS-1$ $NON-NLS-2$
@@ -129,7 +139,13 @@ public class StandardSQLDialectQueryGenerator implements SQLQueryGenerator {
                     // Constraint may consist of several conditions and we don't want to break operator precedence
                     query.append('(');
                 }
-                query.append(getConstraintAttributeName(dataSource, conditionTable, constraint, subQuery))
+
+                String attrName = getConstraintAttributeName(dataSource, conditionTable, constraint, subQuery);
+                if (constraint.getAttribute() != null) {
+                    attrName = dataSource.getSQLDialect().getTypeCastClause(constraint.getAttribute(), attrName, true);
+                }
+                query
+                    .append(attrName)
                     .append(' ')
                     .append(getConstraintCondition(dataSource, constraint, conditionTable, inlineCriteria));
                 if (constraints.size() > 1) {
@@ -411,7 +427,8 @@ public class StandardSQLDialectQueryGenerator implements SQLQueryGenerator {
                 strValue = CommonUtils.toString(value);
             }
         } else if (inlineCriteria) {
-            strValue = SQLUtils.convertValueToSQL(dataSource, constraint.getAttribute(), value);
+            DBDValueHandler valueHandler = DBUtils.findValueHandler(dataSource, constraint.getAttribute());
+            strValue = SQLUtils.convertValueToSQL(dataSource, constraint.getAttribute(), valueHandler, value, DBDDisplayFormat.NATIVE, true);
         } else {
             strValue = dataSource.getSQLDialect().getTypeCastClause(constraint.getAttribute(), "?", true);
         }
